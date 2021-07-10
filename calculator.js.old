@@ -1,0 +1,155 @@
+const birthYear = 1989;
+const deathYear = birthYear + 90;
+const targetSalaryTodaysDollars = 100e3;
+const inflation = 0.025;
+const interest = 0.06;
+const current401k = 79.5e3;
+const currentYear = 2021;
+
+/*
+Social Security estimate, todays dollars, monthly:
+62: $2,374.00
+67: $3,383.00
+70: $4,194.00
+*/
+const computeBasicInvestment = (principal, rate, time, contribution) => {
+  return (
+    principal * Math.pow(1 + rate, time) +
+    contribution * ((Math.pow(1 + rate, time) - 1) / rate)
+  );
+};
+
+const computeInflation = (year) => {
+  return Math.pow(1 + inflation, year - currentYear);
+};
+
+const getSocialSecurity = (retirementYear) => {
+  const age = retirementYear - birthYear;
+  if (age >= 70) {
+    return { year: ageToYear(70), monthly: 4194 };
+  } else if (age >= 67) {
+    return { year: ageToYear(68), monthly: 3383 };
+  }
+  return { year: ageToYear(62), monthly: 2374 };
+};
+
+const compute401kValue = (year) => {
+  // annal contribution of 19.5k + 4% match
+  const contribution =( 19.5e3 + 6.8e3) / 12;
+  const years = year - currentYear;
+  const r = interest / 12;
+  const t = years * 12;
+  // console.log(`compute401kValue, r: ${r}, t: ${t} contribution: ${contribution} current401k: ${current401k}`)
+  return computeBasicInvestment(current401k, r, t, contribution);
+};
+/*
+money from 401K and from SS is taxable.
+money from investment account is not taxable (it's already taxed)
+401K not accessable until 60.
+TODO: add tax support, break down by income source.
+
+*/
+const simulateRetirement = (year, annualSpend, principal) => {
+  // draw principal first, then draw 401K (which is taxed)
+  annualSpend *= computeInflation(year); // adjust to starting year dollars.
+  const { year: ssStart, monthly } = getSocialSecurity(year);
+  const start401k = ageToYear(60);
+  let principal401k = compute401kValue(year);
+  let deficit = 0;
+  for (let i = year; i < deathYear; ++i) {
+    let ssIncome = 0;
+    let income401k = 0;
+
+    if (i >= ssStart) {
+      ssIncome = monthly * 12 * computeInflation(i) * 0.65; // SS is taxed.
+    }
+    let thisYearSpendTarget = annualSpend;
+    thisYearSpendTarget -= ssIncome;
+    if(thisYearSpendTarget < 0) {
+      thisYearSpendTarget = 0;
+    }
+    const principalContribution = Math.max(
+      Math.min(thisYearSpendTarget, principal),
+      0
+    );
+    thisYearSpendTarget -= principalContribution;
+    principal -= principalContribution;
+    let contribution401k = 0;
+    if (i >= start401k) {
+      if (thisYearSpendTarget > 0) {
+        contribution401k = Math.max(
+          Math.min(principal401k * 0.65, thisYearSpendTarget /0.65),
+          0
+        );
+        thisYearSpendTarget -= contribution401k * 0.65;
+        principal401k -= contribution401k;
+      }
+    }
+
+    // console.log(`year: ${i}, annualSpend: ${annualSpend} principal: ${principal} principal401k: ${principal401k} principalContribution: ${principalContribution} contribution401k: ${contribution401k} ssIncome: ${ssIncome} thisYearSpendTarget:${thisYearSpendTarget}`)
+    principal += interest * principal;
+    principal401k += interest * principal401k;
+    annualSpend *= 1 + inflation; // adjust for 1 year inflation.
+    deficit -= thisYearSpendTarget;
+  }
+  // TODO: make the model properly deal with 401K interest, and payouts.
+  return principal + principal401k + deficit;
+};
+
+const ageToYear = (age) => {
+  return birthYear + age;
+};
+
+console.log(`401k (65): ${compute401kValue(ageToYear(65))}`);
+console.log(
+  `simulate retirement ${simulateRetirement(ageToYear(65), 100e3, 1.5e6)}`
+);
+
+const midpoint = (a, b) => {
+  return (a + b) / 2;
+};
+// produce a grid of retirement needs for different spends. returns principal required.
+const solve = (year, annualSpend) => {
+  // detect zero case:
+  if (simulateRetirement(year, annualSpend, 0) >= 0) {
+    return 0;
+  }
+  let iterationsLeft = 100;
+  const maxDelta = 100e3;
+  let maxGuess = 10e6;
+  let minGuess = 1e3;
+  let guess = midpoint(minGuess, maxGuess);
+  while (true) {
+    let output = simulateRetirement(year, annualSpend, guess);
+    // console.log(`guess: ${guess}, output: ${output}`)
+    if (Math.abs(output) < maxDelta) return Math.round(guess);
+    else if (output < 0) {
+      minGuess = guess;
+      guess = midpoint(guess, maxGuess);
+    } else {
+      maxGuess = guess;
+      guess = midpoint(guess, minGuess);
+    }
+    iterationsLeft -= 1;
+    if (iterationsLeft == 0) {
+      throw Error(
+        `didn't converge age:${year - birthYear}, annualSpend: ${annualSpend}`
+      );
+    }
+  }
+};
+
+
+const ages = [40, 50, 60, 65, 67, 70];
+const incomes = [100e3, 125e3, 150e3, 175e3, 200e3];
+
+for (let age of ages) {
+  for (let income of incomes) {
+    console.log(
+      `age: ${age} income: $${income.toLocaleString()}, requirement: $${solve(
+        ageToYear(age),
+        income
+      ).toLocaleString()}`
+    );
+  }
+}

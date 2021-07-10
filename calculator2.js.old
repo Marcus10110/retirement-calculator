@@ -1,0 +1,92 @@
+function requiredPrincipalForRetirement(rate, periods, periodWithdrawl) {
+    const n = periods;
+    const i = rate;
+    const W = periodWithdrawl;
+    return W * ( Math.pow(( 1 + i ), n) - 1 ) / ( i * Math.pow(( 1 + i ), n ) );
+  }
+  
+  const computeBasicInvestment = (principal, rate, time, contribution) => {
+    return (
+      principal * Math.pow(1 + rate, time) +
+      contribution * ((Math.pow(1 + rate, time) - 1) / rate)
+    );
+  };
+  
+  const computeInflation = (year, currentYear, inflation) => {
+    return Math.pow(1 + inflation, year - currentYear);
+  };
+  
+  const ageToYear = (age, birthYear) => {
+    return birthYear + age;
+  };
+  
+  const getSocialSecurity = (retirementYear, birthYear) => {
+    const age = retirementYear - birthYear;
+    if (age >= 70) {
+      return { year: ageToYear(70, birthYear), monthly: 4194 };
+    } else if (age >= 67) {
+      return { year: ageToYear(68, birthYear), monthly: 3383 };
+    }
+    return { year: ageToYear(62, birthYear), monthly: 2374 };
+  };
+  
+  const compute401kValue = (year, currentYear, contributionLimit, match, interest, current401k) => {
+    // annal contribution of 19.5k + 4% match
+    const contribution =( contributionLimit + match) / 12;
+    const years = year - currentYear;
+    const r = interest / 12;
+    const t = years * 12;
+    return computeBasicInvestment(current401k, r, t, contribution);
+  };
+  
+  const simulateRetirement = (age, birthYear, currentYear, annualSpend, principal, inflation, contributionLimit, match, interest, current401k) => {
+    // draw principal first, then draw 401K (which is taxed)
+    const year = age + birthYear;
+    annualSpend *= computeInflation(year, currentYear, inflation); // adjust to starting year dollars.
+    const { year: ssStart, monthly } = getSocialSecurity(year, birthYear);
+    const start401k = ageToYear(60, birthYear);
+    let principal401k = compute401kValue(year, currentYear, contributionLimit, match, interest, current401k);
+    let deficit = 0;
+    for (let i = year; i < deathYear; ++i) {
+      let ssIncome = 0;
+      let income401k = 0;
+  
+      if (i >= ssStart) {
+        ssIncome = monthly * 12 * computeInflation(i) * 0.65; // SS is taxed.
+      }
+      let thisYearSpendTarget = annualSpend;
+      thisYearSpendTarget -= ssIncome;
+      if(thisYearSpendTarget < 0) {
+        thisYearSpendTarget = 0;
+      }
+      const principalContribution = Math.max(
+        Math.min(thisYearSpendTarget, principal),
+        0
+      );
+      thisYearSpendTarget -= principalContribution;
+      principal -= principalContribution;
+      let contribution401k = 0;
+      if (i >= start401k) {
+        if (thisYearSpendTarget > 0) {
+          contribution401k = Math.max(
+            Math.min(principal401k * 0.65, thisYearSpendTarget /0.65),
+            0
+          );
+          thisYearSpendTarget -= contribution401k * 0.65;
+          principal401k -= contribution401k;
+        }
+      }
+  
+      // console.log(`year: ${i}, annualSpend: ${annualSpend} principal: ${principal} principal401k: ${principal401k} principalContribution: ${principalContribution} contribution401k: ${contribution401k} ssIncome: ${ssIncome} thisYearSpendTarget:${thisYearSpendTarget}`)
+      principal += interest * principal;
+      principal401k += interest * principal401k;
+      annualSpend *= 1 + inflation; // adjust for 1 year inflation.
+      deficit -= thisYearSpendTarget;
+    }
+    // TODO: make the model properly deal with 401K interest, and payouts.
+    return principal + principal401k + deficit;
+  };
+
+
+  // Tests!
+  
